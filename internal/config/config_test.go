@@ -65,6 +65,22 @@ func TestPlaintextDisabledAndPartial(t *testing.T) {
 	}
 }
 
+func TestPort25(t *testing.T) {
+	m := map[string]string{"MAIL_DOMAINS": "a.com", "CERT_SOURCE": "selfsigned", "UPSTREAM_SMTP": "smtp.p.test", "ENABLE_PORT_25": "true"}
+	c, err := LoadFrom(envMap(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := c.Listeners[len(c.Listeners)-1]
+	if l.Port != 25 || l.Kind != "submission" || l.Implicit || l.Upstream.Addr() != "smtp.p.test:465" {
+		t.Fatalf("%+v", l)
+	}
+	m["UPSTREAM_SMTP"], m["UPSTREAM_IMAP"] = "", "imap.p.test"
+	if _, err := LoadFrom(envMap(m)); err == nil {
+		t.Fatal("expected error without UPSTREAM_SMTP")
+	}
+}
+
 func TestListenersOverride(t *testing.T) {
 	l, err := ParseListeners("10993:imaps,2525:submission:smtp.x.test:465",
 		map[string]Upstream{ProtoIMAP: {"imap.x.test", 993}})

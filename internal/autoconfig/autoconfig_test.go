@@ -21,6 +21,7 @@ func handler(t *testing.T) http.Handler {
 		return map[string]string{
 			"MAIL_DOMAINS": "a.com,b.com", "CERT_SOURCE": "selfsigned",
 			"UPSTREAM_IMAP": "imap.p.test", "UPSTREAM_POP3": "pop.p.test", "UPSTREAM_SMTP": "smtp.p.test",
+			"ENABLE_PORT_25": "true",
 		}[k]
 	})
 	if err != nil {
@@ -56,6 +57,9 @@ func TestThunderbird(t *testing.T) {
 	}
 	if strings.Index(b, "<port>993</port>") > strings.Index(b, "<port>143</port>") {
 		t.Error("implicit TLS should be listed first")
+	}
+	if strings.Contains(b, "<port>25</port>") {
+		t.Error("port 25 must not be advertised")
 	}
 	if strings.Contains(b, "p.test") {
 		t.Error("upstream host must not leak")

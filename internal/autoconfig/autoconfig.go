@@ -76,7 +76,13 @@ func (h *Handler) build(domain, email string) data {
 		d.DisplayName = domain
 	}
 	for _, p := range config.Protocols {
-		ls := h.Cfg.ListenersFor(p)
+		var ls []config.Listener
+		for _, l := range h.Cfg.ListenersFor(p) {
+			// Port 25 is a compatibility fallback only; never advertise it.
+			if l.Port != 25 {
+				ls = append(ls, l)
+			}
+		}
 		for i, l := range ls {
 			svc := service{Type: p, Port: l.Port, Socket: "STARTTLS"}
 			if l.Implicit {

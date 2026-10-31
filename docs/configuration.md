@@ -16,6 +16,7 @@ All settings are environment variables, editable in Coolify's **Environment Vari
 | `UPSTREAM_POP3` | – | Provider POP3S `host[:port]` (port 995) |
 | `UPSTREAM_SMTP` | – | Provider SMTPS `host[:port]` (port 465) |
 | `ENABLE_PLAINTEXT` | `true` | Also listen on 143/110/587 for unencrypted and STARTTLS clients |
+| `ENABLE_PORT_25` | `false` | Also accept SMTP submission on port 25, see below |
 | `LISTENERS` | derived | Advanced override, see below |
 | `ACME_EMAIL` | – (required) | |
 | `ACME_STAGING` | `false` | Use the Let's Encrypt staging CA |
@@ -55,3 +56,15 @@ LISTENERS=993:imaps,143:imap,2525:submission:smtp.other.com:465
 ```
 
 Every listener port must also be published under `ports:` in `docker-compose.yaml`.
+
+## Port 25
+
+Some clients (e.g. Outlook with encryption set to *None*) default to port 25 for outgoing mail.
+`ENABLE_PORT_25=true` adds a `submission` listener on port 25 (plaintext or STARTTLS, authenticated,
+forwarded to `UPSTREAM_SMTP`). Port 25 is never advertised in autoconfig.
+
+> **Warning:** port 25 is also where other mail servers deliver incoming mail. If `mail.<domain>`
+> (or this server's IP) is listed as an **MX** for any served domain, remove that MX record first.
+> Otherwise senders that reach this host get a permanent `530 Authentication required` and bounce
+> the message instead of trying the next MX. Many residential ISPs also block outbound port 25,
+> so 587 or 465 remain the recommended client ports.

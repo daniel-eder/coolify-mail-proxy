@@ -176,12 +176,24 @@ func LoadFrom(get func(string) string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ENABLE_PLAINTEXT: %w", err)
 	}
+	port25, err := strconv.ParseBool(env("ENABLE_PORT_25", "false"))
+	if err != nil {
+		return nil, fmt.Errorf("ENABLE_PORT_25: %w", err)
+	}
 	if spec := env("LISTENERS", ""); spec != "" {
 		if c.Listeners, err = ParseListeners(spec, c.Upstreams); err != nil {
 			return nil, err
 		}
 	} else {
 		c.Listeners = defaultListeners(c.Upstreams, plaintext)
+		if port25 {
+			u, ok := c.Upstreams[ProtoSMTP]
+			if !ok {
+				return nil, fmt.Errorf("ENABLE_PORT_25 requires UPSTREAM_SMTP")
+			}
+			// Some clients default to port 25 for unencrypted submission.
+			c.Listeners = append(c.Listeners, Listener{Port: 25, Kind: "submission", Protocol: ProtoSMTP, Upstream: u})
+		}
 	}
 
 	if c.ACMEStaging, err = strconv.ParseBool(env("ACME_STAGING", "false")); err != nil {

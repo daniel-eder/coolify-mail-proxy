@@ -19,6 +19,9 @@ services:
       - UPSTREAM_SMTP=${UPSTREAM_SMTP:-}
       # Also accept unencrypted/STARTTLS clients on 143, 110 and 587.
       - ENABLE_PLAINTEXT=${ENABLE_PLAINTEXT:-true}
+      # Also accept SMTP submission (plain/STARTTLS) on port 25, for clients that default to it.
+      # Do not enable while this host is listed as an MX for a served domain (see docs).
+      - ENABLE_PORT_25=${ENABLE_PORT_25:-false}
       # Advanced: explicit listener list "listenPort:kind[:upstreamHost:upstreamPort],..."
       - LISTENERS=${LISTENERS:-}
       - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL}
@@ -39,6 +42,7 @@ services:
       - "110:110"   # POP3 (plain / STLS)
       - "465:465"   # SMTPS submission
       - "587:587"   # Submission (plain / STARTTLS)
+      - "25:25"     # Submission on port 25, only used with ENABLE_PORT_25=true
     volumes:
       - mailproxy-data:/data
     sysctls:

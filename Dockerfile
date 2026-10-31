@@ -14,6 +14,6 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/mailproxy /mailproxy
 COPY --from=build --chown=65532:65532 /out/data /data
 VOLUME /data
-EXPOSE 993 143 995 110 465 587 8080
+EXPOSE 993 143 995 110 465 587 25 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD ["/mailproxy", "healthcheck"]
 ENTRYPOINT ["/mailproxy"]

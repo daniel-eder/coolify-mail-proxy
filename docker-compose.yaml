@@ -1,0 +1,64 @@
+# Coolify: deploy this repository as a "Docker Compose" resource.
+# All settings below appear as editable environment variables in Coolify.
+services:
+  mailproxy:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Customer domains (comma separated). a.com -> mail.a.com, autoconfig.a.com, autodiscover.a.com
+      - MAIL_DOMAINS=${MAIL_DOMAINS:?set MAIL_DOMAINS}
+      - MAIL_HOST_PREFIX=${MAIL_HOST_PREFIX:-mail}
+      # Implicit-TLS endpoints of the mail provider: host[:port] (ports default to 993/995/465).
+      # Leave a protocol empty to disable it.
+      - UPSTREAM_IMAP=${UPSTREAM_IMAP:-}
+      - UPSTREAM_POP3=${UPSTREAM_POP3:-}
+      - UPSTREAM_SMTP=${UPSTREAM_SMTP:-}
+      # Also accept unencrypted/STARTTLS clients on 143, 110 and 587.
+      - ENABLE_PLAINTEXT=${ENABLE_PLAINTEXT:-true}
+      # Advanced: explicit listener list "listenPort:kind[:upstreamHost:upstreamPort],..."
+      - LISTENERS=${LISTENERS:-}
+      - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL}
+      - ACME_STAGING=${ACME_STAGING:-false}
+      - CF_API_TOKEN=${CF_API_TOKEN:?set CF_API_TOKEN}
+      - CF_ZONE_TOKEN=${CF_ZONE_TOKEN:-}
+      # Only for customer zones that are NOT in your Cloudflare account (see README)
+      - ACME_DELEGATION_ZONE=${ACME_DELEGATION_ZONE:-}
+      - ACME_DELEGATED_DOMAINS=${ACME_DELEGATED_DOMAINS:-}
+      - DISPLAY_NAME=${DISPLAY_NAME:-}
+      - MAX_CONNS_PER_IP=${MAX_CONNS_PER_IP:-20}
+      - IDLE_TIMEOUT=${IDLE_TIMEOUT:-35m}
+    ports:
+      # Remove the ports of protocols you do not use.
+      - "993:993"   # IMAPS
+      - "143:143"   # IMAP (plain / STARTTLS)
+      - "995:995"   # POP3S
+      - "110:110"   # POP3 (plain / STLS)
+      - "465:465"   # SMTPS submission
+      - "587:587"   # Submission (plain / STARTTLS)
+    volumes:
+      - mailproxy-data:/data
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    healthcheck:
+      test: ["CMD", "/mailproxy", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    labels:
+      # Route every autoconfig.* / autodiscover.* host to this container.
+      # The app itself answers only for domains listed in MAIL_DOMAINS.
+      - traefik.enable=true
+      - traefik.http.services.mailproxy-autoconfig.loadbalancer.server.port=8080
+      - traefik.http.routers.mailproxy-autoconfig-http.rule=HostRegexp(`^(autoconfig|autodiscover)\..+$$`)
+      - traefik.http.routers.mailproxy-autoconfig-http.entrypoints=http
+      - traefik.http.routers.mailproxy-autoconfig-http.service=mailproxy-autoconfig
+      - traefik.http.routers.mailproxy-autoconfig-http.priority=1
+      - traefik.http.routers.mailproxy-autoconfig-https.rule=HostRegexp(`^(autoconfig|autodiscover)\..+$$`)
+      - traefik.http.routers.mailproxy-autoconfig-https.entrypoints=https
+      - traefik.http.routers.mailproxy-autoconfig-https.service=mailproxy-autoconfig
+      - traefik.http.routers.mailproxy-autoconfig-https.tls=true
+      - traefik.http.routers.mailproxy-autoconfig-https.priority=1
+
+volumes:
+  mailproxy-data:

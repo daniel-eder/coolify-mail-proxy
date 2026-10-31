@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Daniel Eder
+#
+# SPDX-License-Identifier: CC0-1.0
+
 # Coolify: deploy this repository as a "Docker Compose" resource.
 # All settings below appear as editable environment variables in Coolify.
 services:

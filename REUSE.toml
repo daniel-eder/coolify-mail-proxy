@@ -11,3 +11,9 @@ version = 1
 # precedence = "aggregate"
 # SPDX-FileCopyrightText = "2022 Free Software Foundation Europe e.V. <https://fsfe.org>"
 # SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["go.sum"]
+SPDX-FileCopyrightText = "2026 Daniel Eder"
+SPDX-License-Identifier = "CC0-1.0"
+

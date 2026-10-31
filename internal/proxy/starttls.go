@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 package proxy
 
 import (
@@ -9,7 +13,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/coolify-mail-proxy/mailproxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
 )
 
 const (

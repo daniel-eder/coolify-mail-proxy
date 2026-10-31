@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 // Package proxy implements the TLS-terminating TCP listeners.
 //
 // Implicit listeners (imaps, pop3s, smtps) terminate TLS from the first byte.
@@ -18,7 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coolify-mail-proxy/mailproxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
 )
 
 // Server runs one listener (one public port).

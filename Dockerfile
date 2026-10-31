@@ -1,4 +1,7 @@
-# syntax=docker/dockerfile:1
+# SPDX-FileCopyrightText: 2026 Daniel Eder
+#
+# SPDX-License-Identifier: CC0-1.0
+
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./

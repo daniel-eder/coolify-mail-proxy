@@ -1,4 +1,8 @@
-module github.com/coolify-mail-proxy/mailproxy
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
+module github.com/daniel-eder/coolify-mail-proxy
 
 go 1.26.2
 

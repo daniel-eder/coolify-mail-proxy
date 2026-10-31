@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 // Package config parses the environment-based configuration of mailproxy.
 package config
 

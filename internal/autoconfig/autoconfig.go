@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 // Package autoconfig serves Thunderbird autoconfig and Outlook autodiscover
 // documents pointing mail clients at the per-customer proxy hostname.
 package autoconfig
@@ -12,7 +16,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/coolify-mail-proxy/mailproxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
 )
 
 type Handler struct {

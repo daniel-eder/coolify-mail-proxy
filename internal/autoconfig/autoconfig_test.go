@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 package autoconfig
 
 import (
@@ -8,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coolify-mail-proxy/mailproxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
 )
 
 func handler(t *testing.T) http.Handler {

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 package proxy
 
 import (
@@ -17,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coolify-mail-proxy/mailproxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
 )
 
 func testCert(t *testing.T, names ...string) (tls.Certificate, *x509.CertPool) {

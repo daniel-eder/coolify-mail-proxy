@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 package main
 
 import (
@@ -14,10 +18,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/coolify-mail-proxy/mailproxy/internal/autoconfig"
-	"github.com/coolify-mail-proxy/mailproxy/internal/certs"
-	"github.com/coolify-mail-proxy/mailproxy/internal/config"
-	"github.com/coolify-mail-proxy/mailproxy/internal/proxy"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/autoconfig"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/certs"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/proxy"
 )
 
 func main() {

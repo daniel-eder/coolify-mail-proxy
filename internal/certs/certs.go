@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Daniel Eder
+//
+// SPDX-License-Identifier: CC0-1.0
+
 // Package certs provides the TLS configuration used by the mail listeners.
 package certs
 
@@ -16,7 +20,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/certmagic"
-	"github.com/coolify-mail-proxy/mailproxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
 	"github.com/libdns/cloudflare"
 	"github.com/mholt/acmez/v3"
 	"github.com/mholt/acmez/v3/acme"

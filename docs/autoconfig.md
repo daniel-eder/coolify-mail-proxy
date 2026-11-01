@@ -21,10 +21,10 @@ per protocol and prefers implicit TLS.
 `docker-compose.yaml` carries static Traefik labels with a catch-all rule:
 
 ```
-HostRegexp(`^(autoconfig|autodiscover|webmail)\..+$`)   priority=1
+HostRegexp(`^(autoconfig|autodiscover)\..+$`)   priority=1
 ```
 
-Traefik sends every `autoconfig.*`, `autodiscover.*` and `webmail.*` request (the latter for [redirects](configuration.md#redirects)) to the container. The app answers
+Traefik sends every `autoconfig.*` and `autodiscover.*` request to the container. The app answers
 only for domains in `MAIL_DOMAINS` and returns 404 for anything else. Because it has the lowest
 priority, any explicit router for such a hostname elsewhere in Coolify still takes precedence.
 

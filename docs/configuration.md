@@ -77,8 +77,7 @@ REDIRECTS=webmail=https://webmail.provider.com/,portal.a.com=https://example.org
 - Entries are separated by commas, semicolons, spaces or newlines.
 
 The redirect is served by the HTTP port (`HTTP_ADDR`, default 8080), so each source hostname must
-point at the container with TLS handled by Coolify's proxy: add `https://webmail.a.com` to the
-service's domains in Coolify (and a DNS record for it).
+point at this container (DNS record, proxied by Cloudflare is fine). Traefik routes it through\nthe `REDIRECT_HOST` compose variable (a single full hostname, e.g. `webmail.a.com`), for which it\nrequests a Let's Encrypt certificate via Coolify's `letsencrypt` resolver, so Cloudflare\n*Full (strict)* works. Set `REDIRECT_HOST` in Coolify to the same host as in `REDIRECTS`.
 
 ## Port 25
 

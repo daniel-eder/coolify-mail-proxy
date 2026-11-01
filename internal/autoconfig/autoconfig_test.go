@@ -90,3 +90,32 @@ func TestOutlook(t *testing.T) {
 		t.Error("unknown domain should 404")
 	}
 }
+
+func TestRedirects(t *testing.T) {
+	cfg, err := config.LoadFrom(func(k string) string {
+		return map[string]string{
+			"MAIL_DOMAINS": "a.com,b.com", "CERT_SOURCE": "selfsigned", "UPSTREAM_IMAP": "imap.p.test",
+			"REDIRECTS": "webmail=https://web.p.test/?d={domain},old.a.com=https://x.test/",
+		}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := (&Handler{Cfg: cfg, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}).Routes()
+	for host, want := range map[string]string{
+		"webmail.a.com":      "https://web.p.test/?d=a.com",
+		"WEBMAIL.b.com:8080": "https://web.p.test/?d=b.com",
+		"old.a.com":          "https://x.test/",
+	} {
+		w := do(h, "GET", host, "/some/path?q=1", "")
+		if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != want {
+			t.Errorf("%s: got %d %q, want 307 %q", host, w.Code, w.Header().Get("Location"), want)
+		}
+	}
+	if w := do(h, "GET", "webmail.a.com", "/healthz", ""); w.Code != 200 {
+		t.Errorf("healthz redirected: %d", w.Code)
+	}
+	if w := do(h, "GET", "other.a.com", "/", ""); w.Code == http.StatusTemporaryRedirect {
+		t.Error("unexpected redirect")
+	}
+}

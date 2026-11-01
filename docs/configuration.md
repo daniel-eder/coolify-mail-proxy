@@ -25,6 +25,7 @@ All settings are environment variables, editable in Coolify's **Environment Vari
 | `ACME_DELEGATION_ZONE` | – | See [setup §5](setup.md#5-customers-whose-dns-is-not-in-your-cloudflare-account) |
 | `ACME_DELEGATED_DOMAINS` | – | See [setup §5](setup.md#5-customers-whose-dns-is-not-in-your-cloudflare-account) |
 | `DISPLAY_NAME` | domain | Provider name shown in Thunderbird |
+| `REDIRECTS` | – | HTTP redirects, e.g. `webmail=https://webmail.provider.com/`, see [Redirects](#redirects) |
 | `MAX_CONNS_PER_IP` | `20` | Concurrent connections per client IP and port (0 = unlimited) |
 | `IDLE_TIMEOUT` | `35m` | Closes sessions idle longer than this (IMAP IDLE refreshes every ≤29 min) |
 | `DIAL_TIMEOUT` | `10s` | Upstream connect timeout |
@@ -56,6 +57,28 @@ LISTENERS=993:imaps,143:imap,2525:submission:smtp.other.com:465
 ```
 
 Every listener port must also be published under `ports:` in `docker-compose.yaml`.
+
+## Redirects
+
+`REDIRECTS` sends browsers visiting a hostname to another URL, e.g. so `webmail.a.com` always
+leads to your current provider's webmail. Switching providers only means changing this variable.
+
+```
+REDIRECTS=webmail=https://webmail.provider.com/,portal.a.com=https://example.org/{domain}
+#         source=target[,source=target...]
+```
+
+- A **source without a dot** is a label applied to every domain in `MAIL_DOMAINS`
+  (`webmail` → `webmail.a.com`, `webmail.b.com`). A source with dots is a full hostname.
+- `{domain}` in the target is replaced by the customer domain of the requested host.
+- Redirects are **temporary** (HTTP 307, `Cache-Control: no-store`), so browsers don't remember
+  an old provider. The browser address bar shows the target URL, not the proxy's hostname.
+- The request path and query are not forwarded; the target is used as given.
+- Entries are separated by commas, semicolons, spaces or newlines.
+
+The redirect is served by the HTTP port (`HTTP_ADDR`, default 8080), so each source hostname must
+point at the container with TLS handled by Coolify's proxy: add `https://webmail.a.com` to the
+service's domains in Coolify (and a DNS record for it).
 
 ## Port 25
 

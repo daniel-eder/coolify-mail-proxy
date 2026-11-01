@@ -44,7 +44,29 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/.well-known/autoconfig/mail/config-v1.1.xml", h.thunderbird)
 	mux.HandleFunc("/autodiscover/autodiscover.xml", h.outlook)
 	mux.HandleFunc("/Autodiscover/Autodiscover.xml", h.outlook)
-	return mux
+	return h.redirects(mux)
+}
+
+// redirects answers requests for configured redirect hostnames with a
+// temporary redirect (307) and passes everything else to next. /healthz is
+// never redirected so health checks work regardless of Host.
+func (h *Handler) redirects(next http.Handler) http.Handler {
+	if len(h.Cfg.Redirects) == 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if hst, _, err := net.SplitHostPort(host); err == nil {
+			host = hst
+		}
+		host = strings.ToLower(strings.TrimSuffix(host, "."))
+		if target, ok := h.Cfg.RedirectTarget(host); ok && r.URL.Path != "/healthz" {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // domainFromHost maps autoconfig.a.com / autodiscover.a.com / a.com to a

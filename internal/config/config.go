@@ -8,6 +8,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -79,6 +80,15 @@ type Config struct {
 	IdleTimeout    time.Duration
 	DialTimeout    time.Duration
 	DisplayName    string
+	// Redirects maps a lowercase request hostname to a target URL template
+	// (may contain {domain}). Served as temporary (307) redirects.
+	Redirects map[string]string
+}
+
+// RedirectTarget returns the redirect URL for a request host, if any.
+func (c *Config) RedirectTarget(host string) (string, bool) {
+	t, ok := c.Redirects[host]
+	return t, ok
 }
 
 // MailHost returns the client-facing mail hostname for a customer domain.
@@ -170,6 +180,10 @@ func LoadFrom(get func(string) string) (*Config, error) {
 	}
 	if len(c.Upstreams) == 0 {
 		return nil, fmt.Errorf("set at least one of UPSTREAM_IMAP, UPSTREAM_POP3, UPSTREAM_SMTP")
+	}
+
+	if c.Redirects, err = ParseRedirects(env("REDIRECTS", ""), c.Domains); err != nil {
+		return nil, err
 	}
 
 	plaintext, err := strconv.ParseBool(env("ENABLE_PLAINTEXT", "true"))
@@ -292,6 +306,55 @@ func parseDomains(s string) ([]string, error) {
 		if !seen[d] {
 			seen[d] = true
 			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// ParseRedirects parses "source=target,..." entries (separated by commas,
+// semicolons, spaces or newlines). A source without a dot is a label applied
+// to every customer domain (webmail -> webmail.a.com, webmail.b.com); a
+// source with dots is a full hostname. "{domain}" in the target is replaced
+// with the customer domain the request host belongs to.
+func ParseRedirects(s string, domains []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' || r == ';' }) {
+		src, target, ok := strings.Cut(f, "=")
+		src = strings.ToLower(strings.Trim(strings.TrimSpace(src), "."))
+		target = strings.TrimSpace(target)
+		if !ok || src == "" || target == "" {
+			return nil, fmt.Errorf("REDIRECTS: %q must be source=https://target", f)
+		}
+		u, err := url.Parse(strings.ReplaceAll(target, "{domain}", "example.com"))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("REDIRECTS: invalid target URL in %q (must be http:// or https://)", f)
+		}
+		if strings.ContainsAny(src, "/:@*") {
+			return nil, fmt.Errorf("REDIRECTS: invalid source %q", src)
+		}
+		hosts := []string{src}
+		if !strings.Contains(src, ".") {
+			hosts = hosts[:0]
+			for _, d := range domains {
+				hosts = append(hosts, src+"."+d)
+			}
+		}
+		for _, h := range hosts {
+			if _, dup := out[h]; dup {
+				return nil, fmt.Errorf("REDIRECTS: duplicate source %q", h)
+			}
+			// Resolve {domain}: the customer domain is the longest configured
+			// domain that is a suffix of the host.
+			dom := ""
+			for _, d := range domains {
+				if (h == d || strings.HasSuffix(h, "."+d)) && len(d) > len(dom) {
+					dom = d
+				}
+			}
+			if strings.Contains(target, "{domain}") && dom == "" {
+				return nil, fmt.Errorf("REDIRECTS: %q uses {domain} but %q is not under a MAIL_DOMAINS domain", f, h)
+			}
+			out[h] = strings.ReplaceAll(target, "{domain}", dom)
 		}
 	}
 	return out, nil

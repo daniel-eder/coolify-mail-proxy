@@ -59,11 +59,11 @@ services:
       # The app itself answers only for domains listed in MAIL_DOMAINS.
       - traefik.enable=true
       - traefik.http.services.mailproxy-autoconfig.loadbalancer.server.port=8080
-      - traefik.http.routers.mailproxy-autoconfig-http.rule=HostRegexp(`^(autoconfig|autodiscover)\..+$$`)
+      - traefik.http.routers.mailproxy-autoconfig-http.rule=HostRegexp(`^(autoconfig|autodiscover|webmail)\..+$$`)
       - traefik.http.routers.mailproxy-autoconfig-http.entrypoints=http
       - traefik.http.routers.mailproxy-autoconfig-http.service=mailproxy-autoconfig
       - traefik.http.routers.mailproxy-autoconfig-http.priority=1
-      - traefik.http.routers.mailproxy-autoconfig-https.rule=HostRegexp(`^(autoconfig|autodiscover)\..+$$`)
+      - traefik.http.routers.mailproxy-autoconfig-https.rule=HostRegexp(`^(autoconfig|autodiscover|webmail)\..+$$`)
       - traefik.http.routers.mailproxy-autoconfig-https.entrypoints=https
       - traefik.http.routers.mailproxy-autoconfig-https.service=mailproxy-autoconfig
       - traefik.http.routers.mailproxy-autoconfig-https.tls=true

@@ -91,6 +91,30 @@ func run(log *slog.Logger) error {
 		}()
 	}
 
+	// Diagnostics: probe each distinct upstream at startup and every 5 minutes
+	// so upstream-side blocking/throttling shows up in the logs.
+	probed := map[string]bool{}
+	for _, l := range cfg.Listeners {
+		if !l.Implicit && l.Upstream.Addr() == "" {
+			continue
+		}
+		key := l.Protocol + "|" + l.Upstream.Addr()
+		if probed[key] {
+			continue
+		}
+		probed[key] = true
+		go func(name, addr string) {
+			for {
+				proxy.ProbeUpstream(ctx, log, name, addr, cfg.DialTimeout)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Minute):
+				}
+			}
+		}(l.Protocol, l.Upstream.Addr())
+	}
+
 	select {
 	case <-ctx.Done():
 	case err := <-errCh:

@@ -162,13 +162,64 @@ func (s *Server) dialUpstream(ctx context.Context) (*tls.Conn, error) {
 	if tc.ServerName == "" {
 		tc.ServerName = s.Listener.Upstream.Host
 	}
-	d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: s.DialTimeout, KeepAlive: 30 * time.Second}, Config: tc}
-	addr := s.Listener.Upstream.Addr()
-	c, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", addr, err)
+	return DialUpstream(ctx, s.Log.With("port", s.Listener.Port, "kind", s.Listener.Kind), s.Listener.Upstream.Addr(), tc, s.DialTimeout)
+}
+
+// DialUpstream connects to addr with implicit TLS. It retries transient
+// failures and logs which stage (tcp or tls) failed, with addresses and timings.
+func DialUpstream(ctx context.Context, log *slog.Logger, addr string, tc *tls.Config, timeout time.Duration) (*tls.Conn, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		t0 := time.Now()
+		nd := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}
+		raw, err := nd.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			lastErr = fmt.Errorf("dial %s (tcp stage): %w", addr, err)
+			log.Warn("upstream tcp connect failed", "attempt", attempt, "addr", addr, "err", err, "took", time.Since(t0).String())
+		} else {
+			tcpTook := time.Since(t0)
+			tconn := tls.Client(raw, tc)
+			hsCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err = tconn.HandshakeContext(hsCtx)
+			cancel()
+			if err == nil {
+				return tconn, nil
+			}
+			lastErr = fmt.Errorf("dial %s (tls stage): %w", addr, err)
+			log.Warn("upstream tls handshake failed", "attempt", attempt, "remote", raw.RemoteAddr().String(),
+				"local", raw.LocalAddr().String(), "sni", tc.ServerName, "err", err,
+				"tcp_took", tcpTook.String(), "tls_took", (time.Since(t0) - tcpTook).String())
+			raw.Close()
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		time.Sleep(time.Duration(attempt) * 300 * time.Millisecond)
 	}
-	return c.(*tls.Conn), nil
+	return nil, lastErr
+}
+
+// ProbeUpstream dials the upstream once and logs the greeting banner. It is a
+// diagnostic aid, used at startup and periodically.
+func ProbeUpstream(ctx context.Context, log *slog.Logger, name, addr string, timeout time.Duration) {
+	tc := &tls.Config{MinVersion: tls.VersionTLS12}
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		tc.ServerName = h
+	}
+	t0 := time.Now()
+	c, err := DialUpstream(ctx, log.With("probe", name), addr, tc, timeout)
+	if err != nil {
+		log.Error("upstream probe failed", "protocol", name, "addr", addr, "err", err)
+		return
+	}
+	defer c.Close()
+	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	line, err := bufio.NewReader(c).ReadString('\n')
+	if err != nil {
+		log.Error("upstream probe: no greeting", "protocol", name, "addr", addr, "remote", c.RemoteAddr().String(), "err", err, "got", line)
+		return
+	}
+	log.Info("upstream probe ok", "protocol", name, "addr", addr, "remote", c.RemoteAddr().String(), "greeting", line, "took", time.Since(t0).String())
 }
 
 // idleConn extends the read deadline on every read.

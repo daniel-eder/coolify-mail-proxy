@@ -9,6 +9,7 @@ SPDX-License-Identifier: CC0-1.0
 * [Overview](#overview)
 * [Setup in Coolify](setup.md): prerequisites, deployment, DNS, adding customers, customer zones outside Cloudflare
 * [Configuration reference](configuration.md): all environment variables and listener kinds
+* [Login protection](security.md): brute-force bans, whitelist, access file
 * [Autoconfig / Autodiscover](autoconfig.md): mail client auto-configuration and Traefik routing
 * [Operations and development](operations.md): security notes, logs, local testing, code layout
 
@@ -31,7 +32,8 @@ Client ─HTTPS─▶ Cloudflare Tunnel ─▶ Coolify Traefik ─▶ mailproxy 
 ```
 
 * **IMAP, POP3 and SMTP submission** are supported on both their implicit-TLS ports and their plaintext ports.
-* Plaintext ports (143/110/587) accept unencrypted clients and also offer STARTTLS/STLS. In both cases the connection to the provider is always made over its **implicit-TLS port**.
+* Plaintext ports (143/110/587) accept unencrypted clients and offer STARTTLS/STLS. Logins require TLS by default. In both cases the connection to the provider is always made over its **implicit-TLS port**.
+* The proxy answers clients itself until they log in and only then connects to the provider. Failed logins lead to escalating temporary bans; successful logins whitelist the client IP. See [Login protection](security.md).
 * Certificates come from ACME **DNS-01 using the Cloudflare API**. This needs no inbound HTTP and works alongside Cloudflare Tunnel.
 * One certificate per customer hostname, selected by SNI. Clients without SNI get the first domain's certificate.
 * Thunderbird autoconfig and Outlook autodiscover for every configured domain.

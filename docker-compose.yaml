@@ -35,6 +35,17 @@ services:
       - REDIRECTS=${REDIRECTS:-}
       - MAX_CONNS_PER_IP=${MAX_CONNS_PER_IP:-20}
       - IDLE_TIMEOUT=${IDLE_TIMEOUT:-35m}
+      # Login protection (see docs/security.md). Manual allow/deny entries go
+      # into the access.conf file below (Coolify: Persistent Storage tab).
+      - LOGIN_GUARD=${LOGIN_GUARD:-true}
+      - BAN_FREE_FAILURES=${BAN_FREE_FAILURES:-2}
+      - BAN_STEPS=${BAN_STEPS:-30s,5m,1h,24h,7d}
+      - BAN_RESET_AFTER=${BAN_RESET_AFTER:-24h}
+      - WHITELIST_DURATION=${WHITELIST_DURATION:-30d}
+      - WHITELIST_MAX_FAILURES=${WHITELIST_MAX_FAILURES:-10}
+      - CONN_RATE_LIMIT=${CONN_RATE_LIMIT:-15}
+      - REQUIRE_KNOWN_DOMAIN=${REQUIRE_KNOWN_DOMAIN:-true}
+      - ALLOW_PLAINTEXT_AUTH=${ALLOW_PLAINTEXT_AUTH:-false}
     ports:
       # Remove the ports of protocols you do not use.
       - "993:993"   # IMAPS
@@ -46,6 +57,24 @@ services:
       - "25:25"     # Submission on port 25, only used with ENABLE_PORT_25=true
     volumes:
       - mailproxy-data:/data
+      # Manually maintained allow/deny list, editable in Coolify under
+      # Persistent Storage. Reloaded automatically within ~10 seconds.
+      - type: bind
+        source: ./access.conf
+        target: /config/access.conf
+        read_only: true
+        content: |
+          # Mail proxy access list. One entry per line, '#' starts a comment.
+          # Changes are picked up automatically within about 10 seconds.
+          #
+          #   allow 203.0.113.7       IP is never banned or rate limited (also lifts an automatic ban)
+          #   allow 198.51.100.0/24   same for a whole network (IPv4 or IPv6 CIDR)
+          #   deny  192.0.2.0/24      connections are refused
+          #   allow alice@a.com       mailbox is never locked by mailbox-based bans
+          #   deny  bob@a.com         logins for this mailbox are refused
+          #
+          # A deny entry wins over a matching allow entry.
+          # Automatic bans and the 30-day whitelist are in /data/access-state.json.
     sysctls:
       - net.ipv4.ip_unprivileged_port_start=0
     healthcheck:

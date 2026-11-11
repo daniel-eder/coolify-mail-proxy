@@ -30,6 +30,12 @@ All settings are environment variables, editable in Coolify's **Environment Vari
 | `IDLE_TIMEOUT` | `35m` | Closes sessions idle longer than this (IMAP IDLE refreshes every ≤29 min) |
 | `DIAL_TIMEOUT` | `10s` | Upstream connect timeout |
 | `CERT_SOURCE` | `acme` | `selfsigned` for local testing only |
+| `ALLOW_PLAINTEXT_AUTH` | `false` | Accept logins on 143/110/587/25 without STARTTLS |
+| `PREAUTH_TIMEOUT` | `2m` | Closes connections idle longer than this before login |
+
+Login protection settings (`LOGIN_GUARD`, `BAN_*`, `WHITELIST_*`, `CONN_RATE_LIMIT`,
+`REQUIRE_KNOWN_DOMAIN`, `AUTH_FAIL_DELAY`, `ACCESS_FILE`, `STATE_FILE`) are described in
+[Login protection](security.md#settings). Durations accept Go syntax plus days, e.g. `90s`, `12h`, `7d`.
 
 ## Listeners
 
@@ -42,12 +48,19 @@ All settings are environment variables, editable in Coolify's **Environment Vari
 | `smtps` | 465 | TLS from the first byte | `UPSTREAM_SMTP` (TLS) |
 | `submission` | 587 | plaintext, `STARTTLS` offered | `UPSTREAM_SMTP` (TLS) |
 
-How the plaintext ports work: the proxy connects to the provider over TLS straight away
-and relays the greeting and capability exchange (`CAPABILITY`/`CAPA`/`EHLO`), adding
-`STARTTLS`/`STLS` to the advertised capabilities. If the client upgrades, the proxy performs
-the TLS handshake with the customer's certificate. As soon as the client authenticates or sends
-any other command, the proxy switches to a transparent byte relay. Data pipelined behind a
-`STARTTLS` command is rejected, to block STARTTLS command injection.
+How a session works, on every port: the proxy answers the client itself until it logs in.
+It sends its own greeting and answers `CAPABILITY`/`CAPA`/`EHLO` from the provider's
+capabilities, which it caches through a probe every 5 minutes. It also advertises
+`STARTTLS`/`STLS` on plaintext ports and offers `AUTH PLAIN`/`LOGIN` as SASL mechanisms. If the
+client upgrades, the proxy performs the TLS handshake with the customer's certificate. When the
+client logs in (`LOGIN`, `AUTHENTICATE`, `USER`/`PASS`, `AUTH`), the proxy checks the
+[login protection](security.md). Only then does it connect to the provider, log in there with
+the same credentials and switch to a transparent byte relay. Connections that never log in,
+such as scanners, never reach the provider.
+
+Before login, the proxy only accepts the commands needed to log in. Mail can't be sent
+without authentication (`530`). Data pipelined behind a `STARTTLS` command is rejected, to
+block STARTTLS command injection. POP3 `APOP` is not supported.
 
 `LISTENERS` replaces the derived set when you need non-standard ports or a different upstream:
 
@@ -77,7 +90,10 @@ REDIRECTS=webmail=https://webmail.provider.com/,portal.a.com=https://example.org
 - Entries are separated by commas, semicolons, spaces or newlines.
 
 The redirect is served by the HTTP port (`HTTP_ADDR`, default 8080), so each source hostname must
-point at this container (DNS record, proxied by Cloudflare is fine). Traefik routes it through\nthe `REDIRECT_HOST` compose variable (a single full hostname, e.g. `webmail.a.com`), for which it\nrequests a Let's Encrypt certificate via Coolify's `letsencrypt` resolver, so Cloudflare\n*Full (strict)* works. Set `REDIRECT_HOST` in Coolify to the same host as in `REDIRECTS`.
+point at this container (DNS record, proxied by Cloudflare is fine). Traefik routes it through
+the `REDIRECT_HOST` compose variable (a single full hostname, e.g. `webmail.a.com`), for which it
+requests a Let's Encrypt certificate via Coolify's `letsencrypt` resolver, so Cloudflare
+*Full (strict)* works. Set `REDIRECT_HOST` in Coolify to the same host as in `REDIRECTS`.
 
 ## Port 25
 

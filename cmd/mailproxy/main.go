@@ -21,6 +21,7 @@ import (
 	"github.com/daniel-eder/coolify-mail-proxy/internal/autoconfig"
 	"github.com/daniel-eder/coolify-mail-proxy/internal/certs"
 	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/guard"
 	"github.com/daniel-eder/coolify-mail-proxy/internal/proxy"
 )
 
@@ -65,21 +66,55 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	gcfg := guard.Config{
+		Enabled:              cfg.LoginGuard,
+		FreeFailures:         cfg.BanFreeFailures,
+		Steps:                cfg.BanSteps,
+		ResetAfter:           cfg.BanResetAfter,
+		WhitelistFor:         cfg.WhitelistDuration,
+		WhitelistMaxFailures: cfg.WhitelistMaxFailures,
+		ConnRateLimit:        cfg.ConnRateLimit,
+		NegativeCacheTTL:     15 * time.Minute,
+		AccessFile:           cfg.AccessFile,
+		StateFile:            cfg.StateFile,
+	}
+	if cfg.RequireKnownDomain {
+		gcfg.Domains = cfg.Domains
+	}
+	g := guard.New(gcfg, log)
+	guardDone := make(chan struct{})
+	go func() { g.Run(ctx); close(guardDone) }()
+	log.Info("login guard", "enabled", cfg.LoginGuard, "ban_steps", fmt.Sprint(cfg.BanSteps),
+		"free_failures", cfg.BanFreeFailures, "conn_rate_limit", cfg.ConnRateLimit, "plaintext_auth", cfg.AllowPlaintextAuth)
+
+	hostname := cfg.MailHost(cfg.Domains[0])
+	upstreams := map[string]*proxy.Upstream{}
 	var servers []*proxy.Server
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(cfg.Listeners))
 	for _, l := range cfg.Listeners {
+		key := l.Protocol + "|" + l.Upstream.Addr()
+		up := upstreams[key]
+		if up == nil {
+			up = proxy.NewUpstream(l.Protocol, l.Upstream, cfg.DialTimeout, hostname, log)
+			upstreams[key] = up
+		}
 		ln, err := net.Listen("tcp", ":"+strconv.Itoa(l.Port))
 		if err != nil {
 			return fmt.Errorf("listen on %d: %w", l.Port, err)
 		}
 		s := &proxy.Server{
-			Listener:      l,
-			TLS:           tlsCfg,
-			MaxConnsPerIP: cfg.MaxConnsPerIP,
-			IdleTimeout:   cfg.IdleTimeout,
-			DialTimeout:   cfg.DialTimeout,
-			Log:           log,
+			Listener:       l,
+			TLS:            tlsCfg,
+			Upstream:       up,
+			Guard:          g,
+			Hostname:       hostname,
+			AllowPlainAuth: cfg.AllowPlaintextAuth,
+			AuthFailDelay:  cfg.AuthFailDelay,
+			MaxConnsPerIP:  cfg.MaxConnsPerIP,
+			PreAuthTimeout: cfg.PreAuthTimeout,
+			IdleTimeout:    cfg.IdleTimeout,
+			Log:            log,
 		}
 		servers = append(servers, s)
 		wg.Add(1)
@@ -91,28 +126,19 @@ func run(log *slog.Logger) error {
 		}()
 	}
 
-	// Diagnostics: probe each distinct upstream at startup and every 5 minutes
-	// so upstream-side blocking/throttling shows up in the logs.
-	probed := map[string]bool{}
-	for _, l := range cfg.Listeners {
-		if !l.Implicit && l.Upstream.Addr() == "" {
-			continue
-		}
-		key := l.Protocol + "|" + l.Upstream.Addr()
-		if probed[key] {
-			continue
-		}
-		probed[key] = true
-		go func(name, addr string) {
+	// Probe each distinct upstream at startup and every 5 minutes: refreshes
+	// the cached capabilities and shows upstream-side blocking in the logs.
+	for _, up := range upstreams {
+		go func() {
 			for {
-				proxy.ProbeUpstream(ctx, log, name, addr, cfg.DialTimeout)
+				up.Probe(ctx)
 				select {
 				case <-ctx.Done():
 					return
 				case <-time.After(5 * time.Minute):
 				}
 			}
-		}(l.Protocol, l.Upstream.Addr())
+		}()
 	}
 
 	select {
@@ -139,6 +165,7 @@ func run(log *slog.Logger) error {
 	case <-shutCtx.Done():
 		log.Warn("sessions still active at shutdown deadline")
 	}
+	<-guardDone // state saved
 	return nil
 }
 

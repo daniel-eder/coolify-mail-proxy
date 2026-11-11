@@ -83,6 +83,21 @@ type Config struct {
 	// Redirects maps a lowercase request hostname to a target URL template
 	// (may contain {domain}). Served as temporary (307) redirects.
 	Redirects map[string]string
+
+	// Login protection (see internal/guard).
+	LoginGuard           bool
+	BanFreeFailures      int
+	BanSteps             []time.Duration
+	BanResetAfter        time.Duration
+	WhitelistDuration    time.Duration
+	WhitelistMaxFailures int
+	ConnRateLimit        int
+	RequireKnownDomain   bool
+	AllowPlaintextAuth   bool
+	AccessFile           string
+	StateFile            string
+	PreAuthTimeout       time.Duration
+	AuthFailDelay        time.Duration
 }
 
 // RedirectTarget returns the redirect URL for a request host, if any.
@@ -223,6 +238,10 @@ func LoadFrom(get func(string) string) (*Config, error) {
 		return nil, fmt.Errorf("DIAL_TIMEOUT: %w", err)
 	}
 
+	if err := c.loadGuard(env); err != nil {
+		return nil, err
+	}
+
 	delegated, err := parseDomains(env("ACME_DELEGATED_DOMAINS", ""))
 	if err != nil {
 		return nil, fmt.Errorf("ACME_DELEGATED_DOMAINS: %w", err)
@@ -250,6 +269,83 @@ func LoadFrom(get func(string) string) (*Config, error) {
 		return nil, fmt.Errorf("CERT_SOURCE must be 'acme' or 'selfsigned', got %q", c.CertSource)
 	}
 	return c, nil
+}
+
+func (c *Config) loadGuard(env func(k, def string) string) error {
+	var err error
+	bools := []struct {
+		key, def string
+		dst      *bool
+	}{
+		{"LOGIN_GUARD", "true", &c.LoginGuard},
+		{"REQUIRE_KNOWN_DOMAIN", "true", &c.RequireKnownDomain},
+		{"ALLOW_PLAINTEXT_AUTH", "false", &c.AllowPlaintextAuth},
+	}
+	for _, b := range bools {
+		if *b.dst, err = strconv.ParseBool(env(b.key, b.def)); err != nil {
+			return fmt.Errorf("%s: %w", b.key, err)
+		}
+	}
+	ints := []struct {
+		key, def string
+		dst      *int
+	}{
+		{"BAN_FREE_FAILURES", "2", &c.BanFreeFailures},
+		{"WHITELIST_MAX_FAILURES", "10", &c.WhitelistMaxFailures},
+		{"CONN_RATE_LIMIT", "15", &c.ConnRateLimit},
+	}
+	for _, i := range ints {
+		if *i.dst, err = strconv.Atoi(env(i.key, i.def)); err != nil || *i.dst < 0 {
+			return fmt.Errorf("%s: must be a non-negative number", i.key)
+		}
+	}
+	durs := []struct {
+		key, def string
+		dst      *time.Duration
+	}{
+		{"BAN_RESET_AFTER", "24h", &c.BanResetAfter},
+		{"WHITELIST_DURATION", "30d", &c.WhitelistDuration},
+		{"PREAUTH_TIMEOUT", "2m", &c.PreAuthTimeout},
+		{"AUTH_FAIL_DELAY", "1s", &c.AuthFailDelay},
+	}
+	for _, d := range durs {
+		if *d.dst, err = ParseDuration(env(d.key, d.def)); err != nil {
+			return fmt.Errorf("%s: %w", d.key, err)
+		}
+	}
+	c.BanSteps = nil
+	for _, f := range strings.Split(env("BAN_STEPS", "30s,5m,1h,24h,7d"), ",") {
+		d, err := ParseDuration(strings.TrimSpace(f))
+		if err != nil || d <= 0 {
+			return fmt.Errorf("BAN_STEPS: invalid duration %q", f)
+		}
+		c.BanSteps = append(c.BanSteps, d)
+	}
+	c.AccessFile = env("ACCESS_FILE", "/config/access.conf")
+	c.StateFile = env("STATE_FILE", strings.TrimRight(c.DataDir, "/")+"/access-state.json")
+	return nil
+}
+
+// ParseDuration is time.ParseDuration with an additional "d" (days) unit,
+// e.g. "7d" or "1d12h".
+func ParseDuration(s string) (time.Duration, error) {
+	var days time.Duration
+	if i := strings.IndexByte(s, 'd'); i > 0 {
+		n, err := strconv.Atoi(s[:i])
+		if err != nil {
+			return 0, fmt.Errorf("invalid duration %q", s)
+		}
+		days = time.Duration(n) * 24 * time.Hour
+		s = s[i+1:]
+		if s == "" {
+			return days, nil
+		}
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	return days + d, nil
 }
 
 // DelegationTarget returns the TXT record name used for a delegated mail host:

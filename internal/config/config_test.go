@@ -4,7 +4,10 @@
 
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func envMap(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
@@ -49,6 +52,31 @@ func TestLoadDefaults(t *testing.T) {
 		if l.Port != w.port || l.Kind != w.kind || l.Implicit != w.implicit || l.Upstream.Addr() != w.up {
 			t.Errorf("listener %d: got %+v want %+v", i, l, w)
 		}
+	}
+}
+
+func TestGuardSettings(t *testing.T) {
+	base := map[string]string{"MAIL_DOMAINS": "a.com", "CERT_SOURCE": "selfsigned", "UPSTREAM_IMAP": "imap.p.test"}
+	c, err := LoadFrom(envMap(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.LoginGuard || c.AllowPlaintextAuth || !c.RequireKnownDomain || c.BanFreeFailures != 2 ||
+		len(c.BanSteps) != 5 || c.BanSteps[4] != 7*24*time.Hour || c.WhitelistDuration != 30*24*time.Hour ||
+		c.StateFile != "/data/access-state.json" || c.AccessFile != "/config/access.conf" {
+		t.Fatalf("defaults: %+v", c)
+	}
+	base["BAN_STEPS"] = "1m, 1d12h"
+	base["LOGIN_GUARD"] = "false"
+	if c, err = LoadFrom(envMap(base)); err != nil {
+		t.Fatal(err)
+	}
+	if c.LoginGuard || len(c.BanSteps) != 2 || c.BanSteps[1] != 36*time.Hour {
+		t.Fatalf("overrides: %v %v", c.LoginGuard, c.BanSteps)
+	}
+	base["BAN_STEPS"] = "1m,soon"
+	if _, err = LoadFrom(envMap(base)); err == nil {
+		t.Fatal("invalid BAN_STEPS accepted")
 	}
 }
 

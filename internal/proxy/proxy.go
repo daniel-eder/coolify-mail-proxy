@@ -5,8 +5,13 @@
 // Package proxy implements the TLS-terminating TCP listeners.
 //
 // Implicit listeners (imaps, pop3s, smtps) terminate TLS from the first byte.
-// Plaintext listeners (imap, pop3, submission) accept unencrypted clients,
-// offer STARTTLS/STLS, and always talk to the upstream's implicit-TLS port.
+// Plaintext listeners (imap, pop3, submission) accept unencrypted clients and
+// offer STARTTLS/STLS. In both cases the proxy itself answers the client
+// until it logs in (greeting, capabilities, STARTTLS, SASL PLAIN/LOGIN); only
+// then does it connect to the upstream's implicit-TLS port, log in there with
+// the client's credentials and switch to a transparent byte relay. Login
+// attempts are checked by the guard (bans, whitelist) before they reach the
+// provider.
 package proxy
 
 import (
@@ -14,27 +19,35 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/daniel-eder/coolify-mail-proxy/internal/config"
+	"github.com/daniel-eder/coolify-mail-proxy/internal/guard"
 )
 
 // Server runs one listener (one public port).
 type Server struct {
 	Listener config.Listener
 	TLS      *tls.Config
-	// UpstreamTLS is used to dial the upstream; ServerName defaults to the upstream host.
-	UpstreamTLS   *tls.Config
+	Upstream *Upstream
+	Guard    *guard.Guard
+	// Hostname is shown in greetings.
+	Hostname string
+	// AllowPlainAuth accepts logins on plaintext ports without STARTTLS.
+	AllowPlainAuth bool
+	// AuthFailDelay slows down failed logins.
+	AuthFailDelay time.Duration
 	MaxConnsPerIP int
-	IdleTimeout   time.Duration
-	DialTimeout   time.Duration
-	Log           *slog.Logger
+	// PreAuthTimeout limits idle time before login, IdleTimeout after.
+	PreAuthTimeout time.Duration
+	IdleTimeout    time.Duration
+	Log            *slog.Logger
 
 	mu     sync.Mutex
 	perIP  map[string]int
@@ -44,9 +57,11 @@ type Server struct {
 
 // Serve accepts connections on ln until ctx is cancelled.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	s.mu.Lock()
 	s.perIP = map[string]int{}
+	s.mu.Unlock()
 	go func() { <-ctx.Done(); ln.Close() }()
-	s.Log.Info("listening", "port", s.Listener.Port, "kind", s.Listener.Kind, "upstream", s.Listener.Upstream.Addr())
+	s.Log.Info("listening", "port", s.Listener.Port, "kind", s.Listener.Kind, "upstream", s.Upstream.Addr)
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -89,59 +104,65 @@ func (s *Server) release(ip string) {
 	}
 }
 
+// rejectLine is sent to plaintext clients that are refused at connect time.
+var rejectLine = map[string]string{
+	config.ProtoIMAP: "* BYE Access denied\r\n",
+	config.ProtoPOP3: "-ERR Access denied\r\n",
+	config.ProtoSMTP: "554 5.7.1 Access denied\r\n",
+}
+
 func (s *Server) handle(ctx context.Context, raw net.Conn) {
 	start := time.Now()
 	ip, _, _ := net.SplitHostPort(raw.RemoteAddr().String())
 	log := s.Log.With("id", s.nextID.Add(1), "client", ip, "port", s.Listener.Port, "kind", s.Listener.Kind)
 	defer raw.Close()
 
+	if ok, reason := s.Guard.Admit(ip); !ok {
+		// Bans are logged once when they are set; repeated rejections of a
+		// banned scanner would only flood the log.
+		lvl := slog.LevelInfo
+		if strings.HasPrefix(reason, "banned") {
+			lvl = slog.LevelDebug
+		}
+		log.Log(ctx, lvl, "rejected", "reason", reason)
+		if !s.Listener.Implicit {
+			_ = raw.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_, _ = io.WriteString(raw, rejectLine[s.Listener.Protocol])
+		}
+		return
+	}
 	if !s.acquire(ip) {
 		log.Warn("rejected: too many connections from client")
 		return
 	}
 	defer s.release(ip)
 
-	var client net.Conn = raw
+	sess := &session{srv: s, ctx: ctx, ip: ip, log: log, client: raw}
 	if s.Listener.Implicit {
 		tc, err := s.handshake(ctx, raw)
 		if err != nil {
 			log.Info("client handshake failed", "err", err)
 			return
 		}
-		client = tc
-		log = log.With("sni", tc.ConnectionState().ServerName)
+		sess.client = tc
+		sess.tls = true
+		sess.log = log.With("sni", tc.ConnectionState().ServerName)
 	}
-
-	upstream, err := s.dialUpstream(ctx)
-	if err != nil {
-		log.Error("upstream connect failed", "err", err)
-		return
-	}
-	defer upstream.Close()
-
-	sess := &session{
-		srv:      s,
-		ctx:      ctx,
-		client:   client,
-		clientR:  bufio.NewReader(&idleConn{Conn: client, timeout: s.IdleTimeout}),
-		upstream: upstream,
-		upR:      bufio.NewReader(&idleConn{Conn: upstream, timeout: s.IdleTimeout}),
-	}
-	if !s.Listener.Implicit {
-		if err := sess.negotiate(s.Listener.Protocol); err != nil {
-			log.Info("pre-auth phase ended", "err", err, "tls", sess.upgraded)
-			return
-		}
-		if sess.upgraded {
-			log = log.With("starttls", true, "sni", sess.client.(*tls.Conn).ConnectionState().ServerName)
-		} else {
-			log = log.With("starttls", false)
-		}
-	}
+	sess.cic = &idleConn{Conn: sess.client, timeout: s.PreAuthTimeout}
+	sess.clientR = bufio.NewReader(sess.cic)
 	defer func() { sess.client.Close() }()
 
+	if err := sess.front(); err != nil {
+		sess.log.Info("session ended before login", "err", err, "tls", sess.tls, "duration", time.Since(start).Round(time.Millisecond).String())
+		return
+	}
+	defer sess.upstream.Close()
+	sess.cic.timeout = s.IdleTimeout
+	sess.uic.timeout = s.IdleTimeout
+	_ = sess.upstream.SetDeadline(time.Time{})
+
 	up, down := pipe(sess.client, sess.clientR, sess.upstream, sess.upR)
-	log.Info("session closed", "bytes_up", up, "bytes_down", down, "duration", time.Since(start).Round(time.Millisecond).String())
+	sess.log.Info("session closed", "user", sess.user, "bytes_up", up, "bytes_down", down, "duration", time.Since(start).Round(time.Millisecond).String())
 }
 
 func (s *Server) handshake(ctx context.Context, c net.Conn) (*tls.Conn, error) {
@@ -152,74 +173,6 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*tls.Conn, error) {
 		return nil, err
 	}
 	return tc, nil
-}
-
-func (s *Server) dialUpstream(ctx context.Context) (*tls.Conn, error) {
-	tc := &tls.Config{MinVersion: tls.VersionTLS12}
-	if s.UpstreamTLS != nil {
-		tc = s.UpstreamTLS.Clone()
-	}
-	if tc.ServerName == "" {
-		tc.ServerName = s.Listener.Upstream.Host
-	}
-	return DialUpstream(ctx, s.Log.With("port", s.Listener.Port, "kind", s.Listener.Kind), s.Listener.Upstream.Addr(), tc, s.DialTimeout)
-}
-
-// DialUpstream connects to addr with implicit TLS. It retries transient
-// failures and logs which stage (tcp or tls) failed, with addresses and timings.
-func DialUpstream(ctx context.Context, log *slog.Logger, addr string, tc *tls.Config, timeout time.Duration) (*tls.Conn, error) {
-	var lastErr error
-	for attempt := 1; attempt <= 3; attempt++ {
-		t0 := time.Now()
-		nd := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}
-		raw, err := nd.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			lastErr = fmt.Errorf("dial %s (tcp stage): %w", addr, err)
-			log.Warn("upstream tcp connect failed", "attempt", attempt, "addr", addr, "err", err, "took", time.Since(t0).String())
-		} else {
-			tcpTook := time.Since(t0)
-			tconn := tls.Client(raw, tc)
-			hsCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			err = tconn.HandshakeContext(hsCtx)
-			cancel()
-			if err == nil {
-				return tconn, nil
-			}
-			lastErr = fmt.Errorf("dial %s (tls stage): %w", addr, err)
-			log.Warn("upstream tls handshake failed", "attempt", attempt, "remote", raw.RemoteAddr().String(),
-				"local", raw.LocalAddr().String(), "sni", tc.ServerName, "err", err,
-				"tcp_took", tcpTook.String(), "tls_took", (time.Since(t0) - tcpTook).String())
-			raw.Close()
-		}
-		if ctx.Err() != nil {
-			break
-		}
-		time.Sleep(time.Duration(attempt) * 300 * time.Millisecond)
-	}
-	return nil, lastErr
-}
-
-// ProbeUpstream dials the upstream once and logs the greeting banner. It is a
-// diagnostic aid, used at startup and periodically.
-func ProbeUpstream(ctx context.Context, log *slog.Logger, name, addr string, timeout time.Duration) {
-	tc := &tls.Config{MinVersion: tls.VersionTLS12}
-	if h, _, err := net.SplitHostPort(addr); err == nil {
-		tc.ServerName = h
-	}
-	t0 := time.Now()
-	c, err := DialUpstream(ctx, log.With("probe", name), addr, tc, timeout)
-	if err != nil {
-		log.Error("upstream probe failed", "protocol", name, "addr", addr, "err", err)
-		return
-	}
-	defer c.Close()
-	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
-	line, err := bufio.NewReader(c).ReadString('\n')
-	if err != nil {
-		log.Error("upstream probe: no greeting", "protocol", name, "addr", addr, "remote", c.RemoteAddr().String(), "err", err, "got", line)
-		return
-	}
-	log.Info("upstream probe ok", "protocol", name, "addr", addr, "remote", c.RemoteAddr().String(), "greeting", line, "took", time.Since(t0).String())
 }
 
 // idleConn extends the read deadline on every read.

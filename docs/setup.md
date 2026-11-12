@@ -31,7 +31,7 @@ SPDX-License-Identifier: CC0-1.0
 
    A protocol whose `UPSTREAM_*` is empty is disabled. Remove its ports from `docker-compose.yaml` as well.
    See the [configuration reference](configuration.md) for all settings.
-3. Leave the service's **Domains** field empty. Autoconfig routing is handled by static Traefik labels (see [autoconfig](autoconfig.md)).
+3. Autoconfig routing is handled by static Traefik labels (see [autoconfig](autoconfig.md)), so the service's **Domains** field stays empty unless you use [redirects](configuration.md#redirects): then it lists exactly the redirect hostnames, as `https://<host>:8080`. In that case also turn **off** *Force HTTPS* in the application's Advanced settings, otherwise visits through Cloudflare end in a redirect loop.
 4. For the first deploy, consider `ACME_STAGING=true` to check that issuance works without hitting Let's Encrypt rate limits. Then set it to `false` and redeploy. Staging and production certificates are stored separately, so nothing needs to be cleaned up.
 5. Deploy. The logs show `obtaining/loading certificates` and then one `listening` line per port. The first issuance takes about 30–90 s per hostname.
 
@@ -44,6 +44,7 @@ Certificates and the ACME account live in the `mailproxy-data` volume and are re
 | `mail.a.com` | A (and AAAA if you have IPv6) | your Coolify server's public IP | **DNS only (grey cloud)**, required, since Cloudflare can't proxy mail protocols |
 | `autoconfig.a.com` | Tunnel public hostname | → Traefik (same target as your other Coolify apps) | proxied |
 | `autodiscover.a.com` | Tunnel public hostname | → Traefik | proxied |
+| `webmail.a.com` (only with [redirects](configuration.md#redirects)) | A record to the server, or Tunnel public hostname | → Traefik | proxied |
 | `_imaps._tcp.a.com` | SRV (optional) | `0 1 993 mail.a.com` | – |
 | `_pop3s._tcp.a.com` | SRV (optional) | `0 1 995 mail.a.com` | – |
 | `_submissions._tcp.a.com` | SRV (optional) | `0 1 465 mail.a.com` | – |
@@ -56,7 +57,7 @@ For the tunnel hostnames: in *Zero Trust → Networks → Tunnels → your tunne
 
 1. Add the customer domain at your mail provider and create their mailboxes.
 2. Create the DNS records from §3.
-3. In Coolify, append the domain to `MAIL_DOMAINS` (e.g. `a.com,b.com,c.com`) and **Redeploy**.
+3. In Coolify, append the domain to `MAIL_DOMAINS` (e.g. `a.com,b.com,c.com`). If you use redirects, also add the customer's redirect host (e.g. `https://webmail.c.com:8080`) to the `mailproxy` service's **Domains**. Then **Redeploy**.
 4. Check:
    ```sh
    openssl s_client -connect mail.c.com:993 -servername mail.c.com </dev/null 2>/dev/null | openssl x509 -noout -subject -dates

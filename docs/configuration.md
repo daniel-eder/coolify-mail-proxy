@@ -90,10 +90,24 @@ REDIRECTS=webmail=https://webmail.provider.com/,portal.a.com=https://example.org
 - Entries are separated by commas, semicolons, spaces or newlines.
 
 The redirect is served by the HTTP port (`HTTP_ADDR`, default 8080), so each source hostname must
-point at this container (DNS record, proxied by Cloudflare is fine). In Coolify, add every full
-source hostname as a domain of the `mailproxy` service, with port 8080, e.g.
-`https://webmail.a.com:8080` (several separated by commas). Coolify then creates the Traefik
-router and requests a Let's Encrypt certificate, so Cloudflare *Full (strict)* works.
+point at this container. Each redirect hostname needs:
+
+1. **DNS**: a record pointing at the Coolify server (proxied by Cloudflare is fine).
+2. **Coolify domain**: the full hostname in the `mailproxy` service's **Domains**, with port 8080,
+   e.g. `https://webmail.a.com:8080,https://webmail.b.com:8080`. A short source like `webmail`
+   expands to one hostname per customer domain, and every one of them must be listed: there is no
+   wildcard routing, because Let's Encrypt cannot issue certificates for a pattern. Coolify creates
+   the Traefik router and a Let's Encrypt certificate per host. With the CLI,
+   `coolify app update <uuid> --compose-domain "mailproxy=https://webmail.a.com:8080,…"` replaces
+   the complete list, so always pass all hosts.
+3. **Force HTTPS off** (application → Advanced). Cloudflare may reach the origin over plain HTTP
+   (*Flexible*, or automatic SSL mode choosing it, or a Tunnel to `http://localhost:80`). With
+   Force HTTPS on, Traefik answers that with a redirect to HTTPS and the browser loops. With it
+   off, both HTTP and HTTPS reach the app, so any Cloudflare SSL mode, including
+   *Full (strict)*, works. Browsers never see the HTTP leg because the app immediately redirects
+   to the target.
+
+Redeploy after changing domains or `REDIRECTS`.
 
 Do not route these hosts with a `${VAR}` in a compose label: Coolify escapes `$` in labels
 ("Escape special characters in labels"), so the variable reaches Traefik unsubstituted and the

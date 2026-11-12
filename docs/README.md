@@ -37,6 +37,7 @@ Client ─HTTPS─▶ Cloudflare Tunnel ─▶ Coolify Traefik ─▶ mailproxy 
 * Certificates come from ACME **DNS-01 using the Cloudflare API**. This needs no inbound HTTP and works alongside Cloudflare Tunnel.
 * One certificate per customer hostname, selected by SNI. Clients without SNI get the first domain's certificate.
 * Thunderbird autoconfig and Outlook autodiscover for every configured domain.
+* Optional HTTP [redirects](configuration.md#redirects), e.g. `webmail.a.com` → the provider's webmail.
 * The provider's certificate is fully verified on every upstream connection.
 * Per-client-IP connection limit, idle timeout, JSON logs and a health check.
 

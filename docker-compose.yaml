@@ -97,16 +97,10 @@ services:
       - traefik.http.routers.mailproxy-autoconfig-https.service=mailproxy-autoconfig
       - traefik.http.routers.mailproxy-autoconfig-https.tls=true
       - traefik.http.routers.mailproxy-autoconfig-https.priority=1
-      # Redirect host (REDIRECTS): explicit host so Traefik can obtain a real
-      # Let's Encrypt certificate (needed for Cloudflare "Full (strict)").
-      - traefik.http.routers.mailproxy-redirect-http.rule=Host(`${REDIRECT_HOST:-redirect.invalid}`)
-      - traefik.http.routers.mailproxy-redirect-http.entrypoints=http
-      - traefik.http.routers.mailproxy-redirect-http.service=mailproxy-autoconfig
-      - traefik.http.routers.mailproxy-redirect-https.rule=Host(`${REDIRECT_HOST:-redirect.invalid}`)
-      - traefik.http.routers.mailproxy-redirect-https.entrypoints=https
-      - traefik.http.routers.mailproxy-redirect-https.service=mailproxy-autoconfig
-      - traefik.http.routers.mailproxy-redirect-https.tls=true
-      - traefik.http.routers.mailproxy-redirect-https.tls.certresolver=letsencrypt
+      # Redirect hosts (REDIRECTS) are NOT routed by labels here: Coolify escapes
+      # "$" in labels, so a ${VAR} in a Host() rule would never be substituted.
+      # Instead set the hosts as the "mailproxy" service domains in Coolify, with
+      # port 8080, e.g. https://webmail.a.com:8080 (see docs/configuration.md).
 
 volumes:
   mailproxy-data:

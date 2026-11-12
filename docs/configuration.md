@@ -90,10 +90,14 @@ REDIRECTS=webmail=https://webmail.provider.com/,portal.a.com=https://example.org
 - Entries are separated by commas, semicolons, spaces or newlines.
 
 The redirect is served by the HTTP port (`HTTP_ADDR`, default 8080), so each source hostname must
-point at this container (DNS record, proxied by Cloudflare is fine). Traefik routes it through
-the `REDIRECT_HOST` compose variable (a single full hostname, e.g. `webmail.a.com`), for which it
-requests a Let's Encrypt certificate via Coolify's `letsencrypt` resolver, so Cloudflare
-*Full (strict)* works. Set `REDIRECT_HOST` in Coolify to the same host as in `REDIRECTS`.
+point at this container (DNS record, proxied by Cloudflare is fine). In Coolify, add every full
+source hostname as a domain of the `mailproxy` service, with port 8080, e.g.
+`https://webmail.a.com:8080` (several separated by commas). Coolify then creates the Traefik
+router and requests a Let's Encrypt certificate, so Cloudflare *Full (strict)* works.
+
+Do not route these hosts with a `${VAR}` in a compose label: Coolify escapes `$` in labels
+("Escape special characters in labels"), so the variable reaches Traefik unsubstituted and the
+host shows Traefik's "site not available" page.
 
 ## Port 25
 
